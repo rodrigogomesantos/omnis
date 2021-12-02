@@ -1,0 +1,17 @@
+{   "prefix":"CAP_PROP_",
+    "suffix":"",
+    "HW_DEVICE":0.0,
+    "properties":{
+        "BRIGHTNESS": 0.0,
+        "CONTRAST": 32.0,
+        "EXPOSURE": -4.0,
+        "FRAME_HEIGHT": 480.0,
+        "FRAME_WIDTH": 640.0,
+        "GAIN": 64.0,
+        "GAMMA": 300.0,
+        "HUE": 0.0,
+        "SATURATION": 64.0,
+        "SHARPNESS": 50.0,
+        "TEMPERATURE": 4600.0
+    }
+}
