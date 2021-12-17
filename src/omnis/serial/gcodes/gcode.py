@@ -1,5 +1,6 @@
 import logging.config
-from ..util.customException import *
+from ..gcodes import gcode_exp as ex
+from time import sleep
 
 class gcode():
     def __init__(self, serial):
@@ -7,24 +8,41 @@ class gcode():
         self.lock = False
         self.lock_permission = ["stop", "kill", "quick_stop", "resume"]
 
-    def send(self, GCODE, *args, **kwargs):
-        if (self.lock and GCODE in self.lock_permission) or not self.lock:
-            getattr(self, GCODE)(*args, **kwargs)
+    def verify(function):
+        def wrapper(self, *args, **kwargs):
+            if self.lock:
+                return
+            return function(self, *args, **kwargs)
+        return wrapper
 
-    def M114(self, type='', where=[("X:", " Y:"), ("Y:", " Z:"), ("Z:", " A:"), ("A:", " Count")]):
+
+    # def M114(self, type='', where=[("X:", " Y:"), ("Y:", " Z:"), ("Z:", " A:"), ("A:", " Count")]):
+    #     if self.serial.isAlive():
+    #         for _ in range(2):
+    #             Echo = (self.serial.send(f"M114 {type}", echo=True))[0]
+    #         try:
+    #             Pos = []
+    #             for get in where:
+    #                 left, right = get[0], get[1]
+    #                 Pos.append(float(Echo[Echo.index(left)+len(left):Echo.index(right)]))
+    #             return dict(zip(['X', 'Y', 'Z', 'A'], Pos))
+    #         except ValueError:
+    #             raise ex.M114unpackFail(self.serial.name, Echo)
+    @verify
+    def M114(self, _type='', sequence=['X','Y','Z','A','B','C', ':']):
         if self.serial.isAlive():
-            for _ in range(2):
-                Echo = (self.serial.send(f"M114 {type}", echo=True))[0]
+            echo = self.serial.send(f"M114 {_type}", echo=True)[0]
+            # print(echo)
+            txt = echo
+            for n in sequence:
+                txt = txt.replace(n, '')
             try:
-                Pos = []
-                for get in where:
-                    left, right = get[0], get[1]
-                    Pos.append(float(Echo[Echo.index(left)+len(left):Echo.index(right)]))
-                return dict(zip(['X', 'Y', 'Z', 'A'], Pos))
+                return dict(zip(sequence[:-1], list(map(float, txt.split(" ")[:len(sequence)-1]))))
             except ValueError:
-                raise M114unpackFail(self.serial.name, Echo)
+                print('\n'*3, echo)
+                return self.M114(_type, sequence)
 
-
+    @verify
     def M119(self, cut=": "):
         if self.serial.isAlive():
             pos=[]
@@ -39,7 +57,7 @@ class gcode():
                     print("ERRO:", info)
             return dict(zip(key, pos))
 
-
+    @verify
     def G28(self,axis='E', endStop='filament', status='open',offset=-23, steps=5, speed=50000):
         if self.serial.isAlive():
             self.serial.send("G91")
@@ -69,7 +87,7 @@ class gcode():
                 except KeyError:
                     pass
 
-                                            
+    @verify                                       
     def M_G0(self, *args, **kargs):
         cords = ""
         for pos in args:
@@ -84,23 +102,23 @@ class gcode():
         #while True:
         a = [v for v in futuro.values()]
         b = [v for v in real.values()]
-        while not all((a[i] - 0.5 <= b[i] <= a[i] + 0.5) == True for i in range(len(b))):
-            real = self.M114('R')
-            b = [v for v in real.values()]
+        while not all((a[i] - 0.5 <= b[i] <= a[i] + 0.5) == True for i in range(len(b))) and not self.lock:
+            b = [v for v in self.M114('R').values()]
             #print(a, b)
             
         real = self.M114('R')
-        #print(real, futuro)
-        pass
+        print(real, futuro)
     
-    def stop(self):
+    @verify
+    def pause(self):
+        self.lock = True
         """
         The M0 command pause after the last movement and wait for the user to continue.
         """
         self.serial.send("M0")
-        self.lock = True
-    
+    @verify
     def kill(self):
+        self.lock = True
         """
         Used for emergency stopping,
         M112 shuts down the machine, turns off all the steppers and heaters
@@ -108,23 +126,24 @@ class gcode():
         A reset is required to return to operational mode.
         """
         self.serial.send("M112")
-        self.lock = True
 
-    def quick_stop(self):
+    @verify
+    def stop(self):
+        self.lock = True
         """
         Stop all steppers instantly.
         Since there will be no deceleration,
         steppers are expected to be out of position after this command.
         """
         self.serial.send("M410")
-        self.lock = True
+        # self.serial.write(str("M410"+ '{0}'.format('\n')).encode('ascii'))
 
     def resume(self):
+        self.lock = False
         """
         Resume machine from pause (M0) using M108 command.
         """
         self.serial.send("M108")
-        self.lock = False
 
     def callPin(self, name, state, json):
         value = json[name]["command"]+(json[name]["values"].replace("_pin_", str(json[name]["pin"]))).replace("_state_", str(json[name][state]))

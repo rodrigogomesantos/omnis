@@ -1,5 +1,5 @@
-from ..util.customException import axisundefined
-
+#from ..util.customException import axisundefined
+from ..moves import moves_exp as ex
 convert = lambda _array, _convert: tuple(_array) if _convert else _array
 
 def setPositon(vector, **kargs):
@@ -11,7 +11,7 @@ def setPositon(vector, **kargs):
         # Desccompacta no formato 'eixo, cordenada' e salva em uma tupla se for para esperar o movimento, e em lista caso posso prosseguir.
         [ordem[v['channel']].append(convert([v["axis"],kargs.get("replace")[v["axis"]] if v['coordinate'] == "variable" else v['coordinate']], v['await'])) for v in vector]
     except KeyError as axis:
-        raise axisundefined(axis,kargs.get("id"),kargs)
+        raise ex.axisundefined(axis,kargs.get("id"),kargs)
     except TypeError:
         print(f"Você definiu algum eixo como 'variable', mas o 'replace' está ausente. Favor conferir! [{kargs.get('id')}]")
         raise

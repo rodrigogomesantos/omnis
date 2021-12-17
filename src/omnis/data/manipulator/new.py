@@ -14,7 +14,7 @@ import re
 class json(object):
     def __init__(self, path, name, script_dir, **args):
         self.name = name+".json"
-        self.dir = os.path.join(script_dir, path)
+        self.dir = path #os.path.join(script_dir, path)
         self.data = args.get("data")
         self.value = self.open(self.dir) if not self.data else self.data
 

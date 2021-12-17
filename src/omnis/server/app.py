@@ -1,21 +1,17 @@
 from threading import Thread
 
-from flask import Flask, Response, render_template, request
-from flask_socketio import SocketIO, send
-from waitress import serve
+from flask import Flask, Response, request, session,copy_current_request_context
+from flask_socketio import SocketIO, emit, join_room, leave_room, close_room, rooms, disconnect
+from flask_cors import CORS
 
 from threading import Lock
-from flask import Flask, render_template, session, request, \
-    copy_current_request_context
-from flask_socketio import SocketIO, emit, join_room, leave_room, \
-    close_room, rooms, disconnect
-#from ..camera.device import new_camera as camera
+from waitress import serve
 from engineio.payload import Payload
 import json
 Payload.max_decode_packets = 500
 
 class Server(object):
-    def __init__(self, app_ip, app_port, report_time, **kargs):
+    def __init__(self, app_ip, app_port, report_time, buildfolder,**kargs):
         """
             ### Parameters
             @app_ip :\n
@@ -44,19 +40,21 @@ class Server(object):
         # self.app = Flask(__name__, static_folder = f"{buildfolder}/static",
         #                         template_folder = buildfolder)
 
-        self.ip = app_ip
-        self.port = app_port
         self.report_time = report_time
-
-        self.thread = None
+        self.buildfolder = buildfolder
         self.thread_lock = Lock()
-        self.app = Flask(__name__)
-        self.app.config['SECRET_KEY'] = 'secret!'
-        self.socketio = SocketIO(self.app, async_mode=None, async_handlers=True)
-        self.functions = kargs.get("functions")
-        self.cameras = kargs.get("cameras")
+        self.port = app_port
+        self.thread = None
+        self.ip = app_ip
+        #, static_folder = f"{self.buildfolder}/static",
+        self.app = Flask(__name__, template_folder = self.buildfolder)
+        CORS(self.app)
         self.process = {}
         self.defineRoutes()
+        self.cameras = kargs.get("cameras")
+        self.functions = kargs.get("functions")
+        self.app.config['SECRET_KEY'] = 'secret!'
+        self.socketio = SocketIO(self.app, async_mode=None, async_handlers=True, cors_allowed_origins='*')
     def start(self):
         
         print("rodando....")
@@ -94,63 +92,70 @@ class Server(object):
                 update = {}
                 for k, v in self.process.items():
                     update[k] = {"alive": v.is_alive()}
-                socketio.emit('my_response',
-                            {'data': json.dumps(update, indent=2, ensure_ascii=False)})
+                print('Updating all clients')
+                socketio.emit('RESPONSE_MESSAGE',
+                           {'data': json.dumps(update, indent=2, ensure_ascii=False)})
+                # sleep((self.report_time))
                 socketio.sleep(self.report_time)
 
 
-        @app.route('/')
-        def index():
-            return render_template('index.html', async_mode=socketio.async_mode)
+        # @app.route('/')
+        # def index():
+            print("Initial Page accessed")
+            #socketio.emit('echo')
+            # return "Bão"
+            #return render_template('index.html', async_mode=socketio.async_mode)
+
+    
+
+        @socketio.on('custom_click')
+        def custom_click(message):
+            print("recebi: ", message)
+            print('respondendo')
+            emit('RESPONSE_MESSAGE', {"command":"startAutoCheck_success", "data":"ok"})
 
 
-        @socketio.event
-        def my_event(message):
-            session['receive_count'] = session.get('receive_count', 0) + 1
-            emit('my_response',
-                {'data': message['data'], 'count': session['receive_count']})
-
-
-        @socketio.event
+        @socketio.on('my_event')
         def my_broadcast_event(message):
             session['receive_count'] = session.get('receive_count', 0) + 1
-            emit('my_response',
+            emit('RESPONSE_MESSAGE',
                 {'data': message['data'], 'count': session['receive_count']},
                 broadcast=True)
         
-        @socketio.event
-        def trigger_this(message):
+        @socketio.on('call_function')
+        def call_function(message):
             print(message)
             try:
                 function = self.functions[message["command"]]
-                thread = Thread(target=function, args=(), kwargs={})
+                thread = Thread(target=function)
                 self.process[message["command"]] = thread
                 thread.start()
-                
-                emit('my_response',
-                    {'data': "ok", 'count': session['receive_count']})
+                emit('RESPONSE_MESSAGE', {'data': f"{message['command']} started"})
             except TypeError:
-                emit('my_response',
-                    {'data': "Nenhuma função foi definida...", 'count': session['receive_count']})
+                print('None function has ben defined...')
+                emit('RESPONSE_MESSAGE',
+                    {'data': "None function has ben defined..."})
             except KeyError:
-                emit('my_response',
-                    {'data': f"A função [{message['command']}] não está acessivel", 'count': session['receive_count']})
+                print("The [{message['command']}] function is not accessible")
+                emit('RESPONSE_MESSAGE',
+                    {'data': f"The [{message['command']}] function is not accessible"})
+            
 
 
-        @socketio.event
+        @socketio.on('my_event')
         def join(message):
             join_room(message['room'])
             session['receive_count'] = session.get('receive_count', 0) + 1
-            emit('my_response',
+            emit('RESPONSE_MESSAGE',
                 {'data': 'In rooms: ' + ', '.join(rooms()),
                 'count': session['receive_count']})
 
 
-        @socketio.event
+        @socketio.on('my_event')
         def leave(message):
             leave_room(message['room'])
             session['receive_count'] = session.get('receive_count', 0) + 1
-            emit('my_response',
+            emit('RESPONSE_MESSAGE',
                 {'data': 'In rooms: ' + ', '.join(rooms()),
                 'count': session['receive_count']})
 
@@ -158,21 +163,21 @@ class Server(object):
         @socketio.on('close_room')
         def on_close_room(message):
             session['receive_count'] = session.get('receive_count', 0) + 1
-            emit('my_response', {'data': 'Room ' + message['room'] + ' is closing.',
+            emit('RESPONSE_MESSAGE', {'data': 'Room ' + message['room'] + ' is closing.',
                                 'count': session['receive_count']},
                 to=message['room'])
             close_room(message['room'])
 
 
-        @socketio.event
+        @socketio.on('my_event')
         def my_room_event(message):
             session['receive_count'] = session.get('receive_count', 0) + 1
-            emit('my_response',
+            emit('RESPONSE_MESSAGE',
                 {'data': message['data'], 'count': session['receive_count']},
                 to=message['room'])
 
 
-        @socketio.event
+        @socketio.on('my_event')
         def disconnect_request():
             @copy_current_request_context
             def can_disconnect():
@@ -182,23 +187,25 @@ class Server(object):
             # for this emit we use a callback function
             # when the callback function is invoked we know that the message has been
             # received and it is safe to disconnect
-            emit('my_response',
+            emit('RESPONSE_MESSAGE',
                 {'data': 'Disconnected!', 'count': session['receive_count']},
                 callback=can_disconnect)
 
 
-        @socketio.event
+        @socketio.on('my_event')
         def my_ping():
             emit('my_pong')
 
 
-        @socketio.event
-        def connect():
+        @socketio.on('start_updates')
+        def start_updates():
             global thread
             with self.thread_lock:
+                print("Recive resquest to starting a threading uptade")
                 if self.thread is None:
+                    print("updating thread started")
                     thread = socketio.start_background_task(background_thread)
-            emit('my_response', {'data': 'Connected', 'count': 0})
+            emit('RESPONSE_MESSAGE', {'data': 'Connected', 'count': 0})
 
 
         @socketio.on('disconnect')

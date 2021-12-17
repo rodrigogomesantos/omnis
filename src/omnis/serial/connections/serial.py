@@ -1,5 +1,6 @@
 
 import logging.config
+import threading
 import traceback
 import serial
 import time
@@ -20,6 +21,7 @@ from ..connections import serial_exp as ex
 # logging.config.fileConfig(r'C:\Users\osche\OneDrive\Documentos\GitHub\Rose_ADP\engine\data\log\config\log.ini', disable_existing_loggers=False)
 
 class new(object):
+    
     def __init__(self, name, port, baudrate, **kwargs):
         self.name = name
         self.port = port
@@ -35,13 +37,21 @@ class new(object):
             -2: ["conexão inexistente!", 'E'],
             -3: ["conexão perdida durante a comunicação!", 'W'],
         }
+        self.lock = threading.Lock()
+        # try:
+        #     self.open(self.port, self.baudrate, 3)
+        # except ex.serialclosed:
+        #     self.reopen()
+        # if not self.isAlive():
+        #     raise ex.serialclosed#(self.name, port=self.port, baudrate=self.baudrate, code=self.code)
+    def start(self):
         try:
             self.open(self.port, self.baudrate, 3)
         except ex.serialclosed:
             self.reopen()
         if not self.isAlive():
-            raise ex.serialclosed#(self.name, port=self.port, baudrate=self.baudrate, code=self.code)
-        
+             raise ex.serialclosed
+
     def reopen(self, limit=5, timer=2.5):
         self.reconnect +=1
         print(color(f"{self.name} não conseguiu estabeler conexão, tentanto pela [{self.reconnect}º] vez..", 'W'))
@@ -108,13 +118,16 @@ class new(object):
     def send(self, command, **kargs):
         # Verifica se é possivel enviar dados através da conexão informada.
         if self.isAlive():
+            self.lock.acquire(1)
             try:
                 self.clear()
 
+                
                 # Verifica se é um unico comando
                 if isinstance(command, str):
                     self.serial.write(
                         str(command + '{0}'.format('\n')).encode('ascii'))
+                    # print('Enviado o comando: ' + command)
                 # Verifica se é uma lista de comandos
                 if isinstance(command, list):
                     for linha in command:
@@ -126,33 +139,34 @@ class new(object):
                     for linha in command:
                         self.serial.write(
                             str(command[linha] + '{0}'.format('\n')).encode('ascii'))
-
+                
                 strr = []
-
+                if command.startswith('G0'):
+                    print("\n"*2, '-'*5, 'Comando de movimentação recebido', '-'*5, '\n'*2)
+                elif command.startswith('M41'):
+                    print("\n"*2, '-'*5, 'Comando de parada recebido', '-'*5, '\n'*2)
                 # Lê, decodifica e processa enquanto houver informação no buffer de entrada.
                 while True:
                     b = self.serial.readline()
                     string_n = b.decode()
                     strr.append(string_n.rstrip())
 
-                    if b == b'':
-                        print("b:", b, type(b))
-                        print("string_n:", string_n, type(string_n))
-                        print("string_n.rstrip():", string_n.rstrip(),
-                            type(string_n.rstrip()))
-                        break
-
+                    # if b == b'':
+                    #     print("b:", b, type(b))
+                    #     print("string_n:", string_n, type(string_n))
+                    #     print("string_n.rstrip():", string_n.rstrip(),
+                    #         type(string_n.rstrip()))
+                    #     break
                     if self.serial.inWaiting() == 0:
                         break
 
-                if b == b'' or b == None or b is None:
-                    self.code = -3
-                    self.close()
-                    raise ex.serialnotrespond#(self.name, port=self.port, baudrate=self.baudrate, code=self.code)
+                    # if b == b'' or b == None or b is None:
+                    #     self.code = -3
+                    #     self.close()
+                    #     raise ex.serialnotrespond#(self.name, port=self.port, baudrate=self.baudrate, code=self.code)
 
                 # Limpa o buffer.
-                self.clear()
-
+                
                 # Se requisitado, retorna aquilo que foi recebido após o envio dos comandos.
                 if kargs.get('echo'):
                     return strr
@@ -164,6 +178,9 @@ class new(object):
                         raise
                 else:
                     raise
+            finally:
+                self.clear()
+                self.lock.release()
                         
             # Avisa que o comando não pode ser enviado, pois a conexão não existe.
         else:
